@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import TelemetryTable from './components/TelemetryTable'
 import ReactMarkdown from 'react-markdown'
 
 function App() {
@@ -74,6 +75,34 @@ function App() {
     }
   }
 
+  const renderMessageContent = (text) => {
+    const dbMarker = "**【数据库真实追溯结果】**";
+    if(text.includes(dbMarker)){
+      // 将文本切分为两部分：查询结果前的闲聊，以及后面的数据部分
+      const [beforeText, restText] = text.split(dbMarker);
+      // 用正则表达式把 ```json 和 ``` 里面的干瘪字符串完整提纯出来
+      const jsonMatch = restText.match(/```json\n([\s\S]*?)\n```/);
+
+      return (
+        <div className="flex flex-col space-y-2">
+          {/* 1. 渲染大模型前置的普通文本解释 */}
+          {beforeText && <ReactMarkdown>{beforeText}</ReactMarkdown>}
+          
+          {/* 2. 魔法时刻：挂载动态可视化组件 */}
+          {jsonMatch && <TelemetryTable jsonStr={jsonMatch[1]} />}
+          
+          {/* 3. 如果 JSON 后面大模型还有总结的话，继续渲染 */}
+          {jsonMatch && restText.split(jsonMatch[0])[1] && (
+            <ReactMarkdown>
+              {restText.split(jsonMatch[0])[1]}
+            </ReactMarkdown>
+          )}
+        </div>
+      );
+    }
+    // 如果没有触发数据库查询，就当成普通聊天文本渲染
+    return <ReactMarkdown>{text}</ReactMarkdown>;
+  }
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-3xl bg-slate-900 rounded-xl shadow-2xl p-6 border border-slate-800">
@@ -100,7 +129,8 @@ function App() {
           {/* 2. 渲染 Markdown 排版的正式回复 */}
           {reply ? (
             <div className="prose prose-invert prose-blue max-w-none">
-              <ReactMarkdown>{reply}</ReactMarkdown>
+              {/* <ReactMarkdown>{reply}</ReactMarkdown> */}
+              {renderMessageContent(reply)}
             </div>
           ) : (
             <div className="text-slate-600 font-mono text-sm mt-2">
