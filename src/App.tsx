@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import TelemetryTable from './components/TelemetryTable'
+import Sidebar, { type SessionItem } from './components/Sidebar'
 import ReactMarkdown from 'react-markdown'
 
 interface Message {
@@ -9,15 +10,17 @@ interface Message {
   toolLogs: any[]
 }
 
+const API_BASE = 'http://127.0.0.1:8000'
+
 function App() {
   const [prompt, setPrompt] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [isThinking, setIsThinking] = useState(false)
 
-  // 为本次浏览器访问生成一个稳定的 session_id
-  const sessionIdRef = useRef<string>(
-    'sess-' + Math.random().toString(36).substring(2, 9)
-  )
+  // 多会话管理状态
+  const [sessions, setSessions] = useState<SessionItem[]>([])
+  const [currentSessionId, setCurrentSessionId] = useState<string>('')
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
   // 消息自动滚到底部
   const chatBottomRef = useRef<HTMLDivElement>(null)
@@ -25,14 +28,116 @@ function App() {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isThinking])
 
+  // 1. 获取会话列表
+  const fetchSessions = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/sessions`)
+      if (res.ok) {
+        const data: SessionItem[] = await res.json()
+        setSessions(data)
+        return data
+      }
+    } catch (err) {
+      console.error('获取会话列表失败:', err)
+    }
+    return []
+  }, [])
+
+  // 2. 加载指定会话的消息历史与 Generative UI 轨迹
+  const loadSessionMessages = useCallback(async (sessionId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/sessions/${sessionId}/messages`)
+      if (res.ok) {
+        const data = await res.json()
+        const history: Message[] = (data.messages || []).map((m: any) => ({
+          id: `msg-${m.id}`,
+          role: m.role,
+          content: m.content,
+          toolLogs: m.tool_calls || []
+        }))
+        setMessages(history)
+      }
+    } catch (err) {
+      console.error('加载会话消息失败:', err)
+    }
+  }, [])
+
+  // 3. 页面初次加载：拉取会话列表，默认挂载最新一个会话（若无则新建）
+  useEffect(() => {
+    const initWorkspace = async () => {
+      const list = await fetchSessions()
+      if (list && list.length > 0) {
+        const latestId = list[0].session_id
+        setCurrentSessionId(latestId)
+        await loadSessionMessages(latestId)
+      } else {
+        handleNewSession()
+      }
+    }
+    initWorkspace()
+  }, [fetchSessions, loadSessionMessages])
+
+  // 4. 切换会话
+  const handleSelectSession = async (sessionId: string) => {
+    if (sessionId === currentSessionId || isThinking) return
+    setCurrentSessionId(sessionId)
+    await loadSessionMessages(sessionId)
+  }
+
+  // 5. 新建排查会话
+  const handleNewSession = async () => {
+    if (isThinking) return
+    try {
+      const res = await fetch(`${API_BASE}/v1/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: '新排查会话' })
+      })
+      if (res.ok) {
+        const newSess: SessionItem = await res.json()
+        setSessions((prev) => [newSess, ...prev])
+        setCurrentSessionId(newSess.session_id)
+        setMessages([]) // 清空当前视图准备录入新排查
+      }
+    } catch (err) {
+      console.error('创建会话失败:', err)
+    }
+  }
+
+  // 6. 删除会话
+  const handleDeleteSession = async (sessionId: string) => {
+    if (isThinking) return
+    if (!window.confirm('确定要删除该排查会话及其全部记录吗？')) return
+
+    try {
+      const res = await fetch(`${API_BASE}/v1/sessions/${sessionId}`, {
+        method: 'DELETE'
+      })
+      if (res.ok) {
+        const remaining = sessions.filter((s) => s.session_id !== sessionId)
+        setSessions(remaining)
+        if (sessionId === currentSessionId) {
+          if (remaining.length > 0) {
+            handleSelectSession(remaining[0].session_id)
+          } else {
+            handleNewSession()
+          }
+        }
+      }
+    } catch (err) {
+      console.error('删除会话失败:', err)
+    }
+  }
+
+  // 7. 发送流式排查指令
   const handleSubmit = async () => {
-    if (!prompt.trim() || isThinking) return
+    if (!prompt.trim() || isThinking || !currentSessionId) return
 
     const userText = prompt
     setPrompt('')
     setIsThinking(true)
 
-    // 1. 生成用户消息和空的助理回复占位
+    // 乐观追加用户消息与助手空气泡
     const userMsgId = 'msg-' + Date.now()
     const assistantMsgId = 'msg-' + (Date.now() + 1)
 
@@ -50,16 +155,15 @@ function App() {
       toolLogs: []
     }
 
-    // 将用户问题和助手空气泡先追加到对话列表中（不清空旧记录！）
     setMessages((prev) => [...prev, userMessage, assistantPlaceholder])
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/v1/agent/dispatch/stream', {
+      const response = await fetch(`${API_BASE}/v1/agent/dispatch/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: userText,
-          session_id: sessionIdRef.current // 👈 传递同一个会话ID！
+          session_id: currentSessionId // 👈 绑定当前选中的持久化 Session ID！
         })
       })
 
@@ -92,7 +196,6 @@ function App() {
               const parsedData = JSON.parse(dataStr)
 
               if (eventType === 'delta' && parsedData.text) {
-                // 流式更新当前这轮 assistant 消息的内容
                 setMessages((prev) =>
                   prev.map((msg) =>
                     msg.id === assistantMsgId
@@ -101,7 +204,6 @@ function App() {
                   )
                 )
               } else if (eventType === 'tool_call') {
-                // 追加到当前这轮 assistant 消息的工具日志中
                 setMessages((prev) =>
                   prev.map((msg) =>
                     msg.id === assistantMsgId
@@ -127,10 +229,12 @@ function App() {
       )
     } finally {
       setIsThinking(false)
+      // 流式结束：刷新一次会话列表（同步后端自动提炼的首轮会话标题与更新时间）
+      fetchSessions()
     }
   }
 
-  // 渲染单条回复中的 Markdown 和动态表格组件
+  // 渲染 Markdown 与 Generative UI 时序大屏组件
   const renderMessageContent = (text: string) => {
     const dbMarker = '**【数据库真实追溯结果】**'
     if (text.includes(dbMarker)) {
@@ -151,55 +255,72 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-4xl bg-slate-900 rounded-xl shadow-2xl p-6 border border-slate-800 flex flex-col h-[85vh]">
-        
-        {/* 头部导航与 Session 标识 */}
-        <div className="flex justify-between items-center pb-4 mb-4 border-b border-slate-800">
-          <h1 className="text-xl font-bold text-blue-500 flex items-center gap-2">
-            ⚙️ 现场设备多轮排查工作站 (FDE Console 2.0)
-          </h1>
-          <div className="text-xs font-mono text-slate-500 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            会话保持: {sessionIdRef.current}
+    <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
+      {/* 1. 左侧可收缩抽屉：多会话工作站 */}
+      <Sidebar
+        sessions={sessions}
+        currentSessionId={currentSessionId}
+        onSelectSession={handleSelectSession}
+        onNewSession={handleNewSession}
+        onDeleteSession={handleDeleteSession}
+        isOpen={isSidebarOpen}
+        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+      />
+
+      {/* 2. 右侧主排障控制台 */}
+      <main className="flex-1 flex flex-col h-full bg-slate-900 overflow-hidden">
+        {/* 顶部状态栏 */}
+        <header className="h-14 border-b border-slate-800 px-6 flex items-center justify-between bg-slate-900/60 backdrop-blur-sm select-none">
+          <div className="flex items-center gap-3">
+            <h1 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+              <span className="text-base">⚙️</span> 工业现场智能排障工作站 (FDE Console 2.0)
+            </h1>
           </div>
-        </div>
+
+          <div className="flex items-center gap-4 text-xs font-mono text-slate-400">
+            <span className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              当前会话: <span className="text-blue-400 font-bold">{currentSessionId || '未连接'}</span>
+            </span>
+          </div>
+        </header>
 
         {/* 消息历史滚动区 */}
-        <div className="flex-1 bg-slate-950 rounded-lg p-6 mb-4 border border-slate-800 overflow-y-auto space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-950/40">
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-slate-600 font-mono text-sm">
-              <span className="text-4xl mb-3">💬</span>
-              等待现场指令录入，支持连续多轮追问与上下文跨设备对比...
+            <div className="h-full flex flex-col items-center justify-center text-slate-600 font-mono text-xs space-y-2 select-none">
+              <span className="text-4xl mb-2">💬</span>
+              <p>当前会话暂无历史排查记录</p>
+              <p className="text-slate-500">
+                可尝试输入："请排查3号机当前的运行状态"，或从左侧抽屉切换历史会话
+              </p>
             </div>
           ) : (
             messages.map((msg) => (
               <div
                 key={msg.id}
-                className={`flex flex-col ${
-                  msg.role === 'user' ? 'items-end' : 'items-start'
-                }`}
+                className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
               >
                 {/* 角色标识 */}
                 <span className="text-[11px] font-mono text-slate-500 mb-1 px-1">
                   {msg.role === 'user' ? '👤 现场工程师' : '🤖 FDE 智能专家'}
                 </span>
 
-                {/* 消息卡片容器 */}
+                {/* 消息气泡卡片 */}
                 <div
-                  className={`max-w-[90%] rounded-xl p-4 text-sm ${
+                  className={`max-w-[85%] rounded-xl p-4 text-sm ${
                     msg.role === 'user'
-                      ? 'bg-blue-600 text-white shadow-lg'
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-950/30'
                       : 'bg-slate-900 border border-slate-800 text-slate-200 shadow-xl'
                   }`}
                 >
-                  {/* 若有工具调度卡片，优先展示在助理回复顶部 */}
+                  {/* 若有工具调度日志，置于顶部 */}
                   {msg.toolLogs && msg.toolLogs.length > 0 && (
                     <div className="mb-4 space-y-2">
                       {msg.toolLogs.map((log, idx) => (
                         <div
                           key={idx}
-                          className="bg-slate-950 border-l-4 border-amber-500 p-3 rounded text-xs"
+                          className="bg-slate-950/80 border-l-4 border-amber-500 p-2.5 rounded text-xs"
                         >
                           <div className="text-amber-400 font-bold flex items-center gap-1.5">
                             <span className="animate-pulse">⚡</span> 底层调度: {log.tool_name}
@@ -219,7 +340,7 @@ function App() {
                     </div>
                   ) : msg.role === 'assistant' ? (
                     <div className="flex items-center gap-2 text-slate-500 font-mono text-xs animate-pulse">
-                      <span>🧠</span> 思考中 / 工具联动中...
+                      <span>🧠</span> 思考中 / 正在调度物理底层工具...
                     </div>
                   ) : null}
                 </div>
@@ -230,26 +351,27 @@ function App() {
         </div>
 
         {/* 底部输入框 */}
-        <div className="flex gap-3 pt-2">
-          <input
-            type="text"
-            className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all disabled:opacity-50 font-mono text-sm"
-            placeholder="例如第一轮：'3号机 DEV-003 亮红灯了，查下情况！'，第二轮追问：'刚才派发的工单号是什么？'"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-            disabled={isThinking}
-          />
-          <button
-            onClick={handleSubmit}
-            disabled={isThinking}
-            className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white px-8 py-3 rounded-lg font-medium transition-colors shadow-lg shadow-blue-900/20 cursor-pointer text-sm"
-          >
-            {isThinking ? '诊断中...' : '发送'}
-          </button>
+        <div className="p-4 border-t border-slate-800 bg-slate-900/90">
+          <div className="max-w-4xl mx-auto flex gap-3">
+            <input
+              type="text"
+              className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all disabled:opacity-50 font-mono text-sm"
+              placeholder="输入排查指令，例如：'请排查3号机状态并派单'，支持多轮连续追问..."
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+              disabled={isThinking}
+            />
+            <button
+              onClick={handleSubmit}
+              disabled={isThinking}
+              className="bg-blue-600 hover:bg-blue-500 active:scale-95 disabled:bg-slate-800 disabled:text-slate-600 text-white px-7 py-3 rounded-lg font-medium transition-all shadow-lg shadow-blue-900/20 cursor-pointer text-sm"
+            >
+              {isThinking ? '诊断中...' : '发送指令'}
+            </button>
+          </div>
         </div>
-
-      </div>
+      </main>
     </div>
   )
 }
