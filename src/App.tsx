@@ -22,6 +22,7 @@ function App() {
   const [currentSessionId, setCurrentSessionId] = useState<string>('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
+  const [provider, setProvider] = useState<'gemini' | 'local'>('gemini')
   // 消息自动滚到底部
   const chatBottomRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -163,7 +164,8 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: userText,
-          session_id: currentSessionId // 👈 绑定当前选中的持久化 Session ID！
+          session_id: currentSessionId, // 👈 绑定当前选中的持久化 Session ID！
+          provider: provider,
         })
       })
 
@@ -278,6 +280,30 @@ function App() {
           </div>
 
           <div className="flex items-center gap-4 text-xs font-mono text-slate-400">
+            <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800">
+              <button
+                onClick={() => !isThinking && setProvider('gemini')}
+                disabled={isThinking}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                  provider === 'gemini'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                ☁️ 云端 Gemini
+              </button>
+              <button
+                onClick={() => !isThinking && setProvider('local')}
+                disabled={isThinking}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                  provider === 'local'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                🛡️ 本地私有引擎
+              </button>
+            </div>
             <span className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               当前会话: <span className="text-blue-400 font-bold">{currentSessionId || '未连接'}</span>
