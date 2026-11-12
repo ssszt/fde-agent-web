@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import TelemetryTable from './components/TelemetryTable'
 import Sidebar, { type SessionItem } from './components/Sidebar'
 import ReactMarkdown from 'react-markdown'
+import WorkOrderPanel from './components/WorkOrderPanel'
 
 interface Message {
   id: string
@@ -23,6 +24,7 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
   const [provider, setProvider] = useState<'gemini' | 'local'>('gemini')
+  const [activeTab, setActiveTab] = useState<'chat' | 'orders'>('chat')
   // 消息自动滚到底部
   const chatBottomRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -272,131 +274,130 @@ function App() {
       {/* 2. 右侧主排障控制台 */}
       <main className="flex-1 flex flex-col h-full bg-slate-900 overflow-hidden">
         {/* 顶部状态栏 */}
-        <header className="h-14 border-b border-slate-800 px-6 flex items-center justify-between bg-slate-900/60 backdrop-blur-sm select-none">
-          <div className="flex items-center gap-3">
-            <h1 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-              <span className="text-base">⚙️</span> 工业现场智能排障工作站 (FDE Console 2.0)
-            </h1>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs font-mono text-slate-400">
-            <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800">
-              <button
-                onClick={() => !isThinking && setProvider('gemini')}
-                disabled={isThinking}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                  provider === 'gemini'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                ☁️ 云端 Gemini
-              </button>
-              <button
-                onClick={() => !isThinking && setProvider('local')}
-                disabled={isThinking}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                  provider === 'local'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                🛡️ 本地私有引擎
-              </button>
-            </div>
-            <span className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              当前会话: <span className="text-blue-400 font-bold">{currentSessionId || '未连接'}</span>
-            </span>
-          </div>
-        </header>
-
-        {/* 消息历史滚动区 */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-950/40">
-          {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-slate-600 font-mono text-xs space-y-2 select-none">
-              <span className="text-4xl mb-2">💬</span>
-              <p>当前会话暂无历史排查记录</p>
-              <p className="text-slate-500">
-                可尝试输入："请排查3号机当前的运行状态"，或从左侧抽屉切换历史会话
-              </p>
-            </div>
-          ) : (
-            messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
-              >
-                {/* 角色标识 */}
-                <span className="text-[11px] font-mono text-slate-500 mb-1 px-1">
-                  {msg.role === 'user' ? '👤 现场工程师' : '🤖 FDE 智能专家'}
-                </span>
-
-                {/* 消息气泡卡片 */}
-                <div
-                  className={`max-w-[85%] rounded-xl p-4 text-sm ${
-                    msg.role === 'user'
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-950/30'
-                      : 'bg-slate-900 border border-slate-800 text-slate-200 shadow-xl'
-                  }`}
-                >
-                  {/* 若有工具调度日志，置于顶部 */}
-                  {msg.toolLogs && msg.toolLogs.length > 0 && (
-                    <div className="mb-4 space-y-2">
-                      {msg.toolLogs.map((log, idx) => (
-                        <div
-                          key={idx}
-                          className="bg-slate-950/80 border-l-4 border-amber-500 p-2.5 rounded text-xs"
-                        >
-                          <div className="text-amber-400 font-bold flex items-center gap-1.5">
-                            <span className="animate-pulse">⚡</span> 底层调度: {log.tool_name}
-                          </div>
-                          <pre className="text-slate-400 text-[11px] font-mono mt-1 overflow-x-auto whitespace-pre-wrap">
-                            {JSON.stringify(log.arguments, null, 2)}
-                          </pre>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* 文本回复区域 */}
-                  {msg.content ? (
-                    <div className="prose prose-invert prose-blue max-w-none text-slate-200">
-                      {renderMessageContent(msg.content)}
-                    </div>
-                  ) : msg.role === 'assistant' ? (
-                    <div className="flex items-center gap-2 text-slate-500 font-mono text-xs animate-pulse">
-                      <span>🧠</span> 思考中 / 正在调度物理底层工具...
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ))
-          )}
-          <div ref={chatBottomRef} />
-        </div>
-
-        {/* 底部输入框 */}
-        <div className="p-4 border-t border-slate-800 bg-slate-900/90">
-          <div className="max-w-4xl mx-auto flex gap-3">
-            <input
-              type="text"
-              className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all disabled:opacity-50 font-mono text-sm"
-              placeholder="输入排查指令，例如：'请排查3号机状态并派单'，支持多轮连续追问..."
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-              disabled={isThinking}
-            />
+        <div className="flex items-center gap-4">
+          <h1 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+            <span className="text-base">⚙️</span> 工业现场智能排障工作站 (FDE Console 2.0)
+          </h1>
+          <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
             <button
-              onClick={handleSubmit}
-              disabled={isThinking}
-              className="bg-blue-600 hover:bg-blue-500 active:scale-95 disabled:bg-slate-800 disabled:text-slate-600 text-white px-7 py-3 rounded-lg font-medium transition-all shadow-lg shadow-blue-900/20 cursor-pointer text-sm"
+              onClick={() => setActiveTab('chat')}
+              className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                activeTab === 'chat'
+                  ? 'bg-slate-800 text-white'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
             >
-              {isThinking ? '诊断中...' : '发送指令'}
+              💬 智能排障
+            </button>
+            <button
+              onClick={() => setActiveTab('orders')}
+              className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                activeTab === 'orders'
+                  ? 'bg-slate-800 text-white'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              📋 工单台账
             </button>
           </div>
         </div>
+
+        {/* 消息历史滚动区 */}
+        {activeTab === 'orders' ? (
+          <WorkOrderPanel apiBase={API_BASE} />
+        ) : (
+          <>
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-950/40">
+              {messages.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-600 font-mono text-xs space-y-2 select-none">
+                  <span className="text-4xl mb-2">💬</span>
+                  <p>当前会话暂无历史排查记录</p>
+                  <p className="text-slate-500">
+                    可尝试输入："请排查3号机当前的运行状态"，或从左侧抽屉切换历史会话
+                  </p>
+                </div>
+              ) : (
+                messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+                  >
+                    {/* 角色标识 */}
+                    <span className="text-[11px] font-mono text-slate-500 mb-1 px-1">
+                      {msg.role === 'user' ? '👤 现场工程师' : '🤖 FDE 智能专家'}
+                    </span>
+
+                    {/* 消息气泡卡片 */}
+                    <div
+                      className={`max-w-[85%] rounded-xl p-4 text-sm ${
+                        msg.role === 'user'
+                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-950/30'
+                          : 'bg-slate-900 border border-slate-800 text-slate-200 shadow-xl'
+                      }`}
+                    >
+                      {/* 若有工具调度日志，置于顶部 */}
+                      {msg.toolLogs && msg.toolLogs.length > 0 && (
+                        <div className="mb-4 space-y-2">
+                          {msg.toolLogs.map((log, idx) => (
+                            <div
+                              key={idx}
+                              className="bg-slate-950/80 border-l-4 border-amber-500 p-2.5 rounded text-xs"
+                            >
+                              <div className="text-amber-400 font-bold flex items-center gap-1.5">
+                                <span className="animate-pulse">⚡</span> 底层调度: {log.tool_name}
+                              </div>
+                              <pre className="text-slate-400 text-[11px] font-mono mt-1 overflow-x-auto whitespace-pre-wrap">
+                                {JSON.stringify(log.arguments, null, 2)}
+                              </pre>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* 文本回复区域 */}
+                      {msg.content ? (
+                        <div className="prose prose-invert prose-blue max-w-none text-slate-200">
+                          {renderMessageContent(msg.content)}
+                        </div>
+                      ) : msg.role === 'assistant' ? (
+                        <div className="flex items-center gap-2 text-slate-500 font-mono text-xs animate-pulse">
+                          <span>🧠</span> 思考中 / 正在调度物理底层工具...
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))
+              )}
+            <div ref={chatBottomRef} />
+            </div>
+          </>
+        )}
+
+        {/* 底部输入框 */}
+        {activeTab === 'orders' ? (<WorkOrderPanel apiBase={API_BASE} />) : (
+          <>
+            <div className="p-4 border-t border-slate-800 bg-slate-900/90">
+              <div className="max-w-4xl mx-auto flex gap-3">
+                <input
+                  type="text"
+                  className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all disabled:opacity-50 font-mono text-sm"
+                  placeholder="输入排查指令，例如：'请排查3号机状态并派单'，支持多轮连续追问..."
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+                  disabled={isThinking}
+                />
+                <button
+                  onClick={handleSubmit}
+                  disabled={isThinking}
+                  className="bg-blue-600 hover:bg-blue-500 active:scale-95 disabled:bg-slate-800 disabled:text-slate-600 text-white px-7 py-3 rounded-lg font-medium transition-all shadow-lg shadow-blue-900/20 cursor-pointer text-sm"
+                >
+                  {isThinking ? '诊断中...' : '发送指令'}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </main>
     </div>
   )
