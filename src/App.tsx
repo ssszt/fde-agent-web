@@ -274,33 +274,66 @@ function App() {
       {/* 2. 右侧主排障控制台 */}
       <main className="flex-1 flex flex-col h-full bg-slate-900 overflow-hidden">
         {/* 顶部状态栏 */}
-        <div className="flex items-center gap-4">
-          <h1 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-            <span className="text-base">⚙️</span> 工业现场智能排障工作站 (FDE Console 2.0)
-          </h1>
-          <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-            <button
-              onClick={() => setActiveTab('chat')}
-              className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                activeTab === 'chat'
-                  ? 'bg-slate-800 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              💬 智能排障
-            </button>
-            <button
-              onClick={() => setActiveTab('orders')}
-              className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                activeTab === 'orders'
-                  ? 'bg-slate-800 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              📋 工单台账
-            </button>
+        <header className="h-14 border-b border-slate-800 px-6 flex items-center justify-between bg-slate-900/60 backdrop-blur-sm select-none">
+          <div className="flex items-center gap-4">
+            <h1 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+              <span className="text-base">⚙️</span> 工业现场智能排障工作站 (FDE Console 2.0)
+            </h1>
+            <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+              <button
+                onClick={() => setActiveTab('chat')}
+                className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                  activeTab === 'chat'
+                    ? 'bg-slate-800 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                💬 智能排障
+              </button>
+              <button
+                onClick={() => setActiveTab('orders')}
+                className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                  activeTab === 'orders'
+                    ? 'bg-slate-800 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                📋 工单台账
+              </button>
+            </div>
           </div>
-        </div>
+
+          <div className="flex items-center gap-4 text-xs font-mono text-slate-400">
+            <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800">
+              <button
+                onClick={() => !isThinking && setProvider('gemini')}
+                disabled={isThinking}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                  provider === 'gemini'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                ☁️ 云端 Gemini
+              </button>
+              <button
+                onClick={() => !isThinking && setProvider('local')}
+                disabled={isThinking}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                  provider === 'local'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                🛡️ 本地私有引擎
+              </button>
+            </div>
+            <span className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              当前会话: <span className="text-blue-400 font-bold">{currentSessionId || '未连接'}</span>
+            </span>
+          </div>
+        </header>
 
         {/* 消息历史滚动区 */}
         {activeTab === 'orders' ? (
