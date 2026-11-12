@@ -3,6 +3,7 @@ import TelemetryTable from './components/TelemetryTable'
 import Sidebar, { type SessionItem } from './components/Sidebar'
 import ReactMarkdown from 'react-markdown'
 import WorkOrderPanel from './components/WorkOrderPanel'
+import DevicePanel, { type DeviceHealthResponse } from './components/DevicePanel'
 
 interface Message {
   id: string
@@ -11,7 +12,25 @@ interface Message {
   toolLogs: any[]
 }
 
+type ColorScheme = 'light' | 'dark'
+
 const API_BASE = 'http://127.0.0.1:8000'
+
+const readStoredScheme = (): ColorScheme | null => {
+  try {
+    const val = localStorage.getItem('color-scheme')
+    return val === 'light' || val === 'dark' ? val : null
+  } catch {
+    return null
+  }
+}
+
+const applyColorSchemeMeta = (stored: ColorScheme | null) => {
+  const meta = document.querySelector('meta[name="color-scheme"]')
+  if (meta) {
+    meta.setAttribute('content', stored ?? 'light dark')
+  }
+}
 
 function App() {
   const [prompt, setPrompt] = useState('')
@@ -24,7 +43,57 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
   const [provider, setProvider] = useState<'gemini' | 'local'>('gemini')
-  const [activeTab, setActiveTab] = useState<'chat' | 'orders'>('chat')
+  const [activeTab, setActiveTab] = useState<'devices' | 'chat' | 'orders'>('devices')
+
+  const [healthData, setHealthData] = useState<DeviceHealthResponse | null>(null)
+  const [healthLoading, setHealthLoading] = useState(false)
+
+  // 主题模式：遵循系统偏好，支持浅色 / 深色覆盖并持久化
+  const [storedScheme, setStoredScheme] = useState<ColorScheme | null>(() => readStoredScheme())
+  const [systemScheme, setSystemScheme] = useState<ColorScheme>(() =>
+    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  )
+  const resolvedScheme: ColorScheme = storedScheme ?? systemScheme
+
+  useEffect(() => {
+    applyColorSchemeMeta(storedScheme)
+  }, [storedScheme])
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const onSystemChange = (e: MediaQueryListEvent) => {
+      setSystemScheme(e.matches ? 'dark' : 'light')
+    }
+    const onStorageChange = (e: StorageEvent) => {
+      if (e.key === 'color-scheme' || e.key === null) {
+        const next = readStoredScheme()
+        setStoredScheme(next)
+        applyColorSchemeMeta(next)
+      }
+    }
+    media.addEventListener('change', onSystemChange)
+    window.addEventListener('storage', onStorageChange)
+    return () => {
+      media.removeEventListener('change', onSystemChange)
+      window.removeEventListener('storage', onStorageChange)
+    }
+  }, [])
+
+  const handleToggleTheme = () => {
+    const target: ColorScheme = resolvedScheme === 'dark' ? 'light' : 'dark'
+    const nextStored: ColorScheme | null = target === systemScheme ? null : target
+    try {
+      if (nextStored === null) {
+        localStorage.removeItem('color-scheme')
+      } else {
+        localStorage.setItem('color-scheme', nextStored)
+      }
+    } catch {
+      // 隐私模式下忽略存储异常，仍应用当前页面主题
+    }
+    setStoredScheme(nextStored)
+    applyColorSchemeMeta(nextStored)
+  }
   // 消息自动滚到底部
   const chatBottomRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -65,6 +134,21 @@ function App() {
     }
   }, [])
 
+  const fetchDeviceHealth = useCallback(async () => {
+    setHealthLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/v1/devices/health`)
+      if (res.ok) {
+        const data: DeviceHealthResponse = await res.json()
+        setHealthData(data)
+      }
+    } catch (err) {
+      console.error('获取设备健康概览失败:', err)
+    } finally {
+      setHealthLoading(false)
+    }
+  }, [])
+
   // 3. 页面初次加载：拉取会话列表，默认挂载最新一个会话（若无则新建）
   useEffect(() => {
     const initWorkspace = async () => {
@@ -76,20 +160,25 @@ function App() {
       } else {
         handleNewSession()
       }
+      await fetchDeviceHealth()
     }
     initWorkspace()
-  }, [fetchSessions, loadSessionMessages])
 
-  // 4. 切换会话
+  }, [fetchSessions, loadSessionMessages, fetchDeviceHealth])
+
+  // 4. 切换会话（并自动切回智能排障对话视图）
   const handleSelectSession = async (sessionId: string) => {
-    if (sessionId === currentSessionId || isThinking) return
+    if (isThinking) return
+    setActiveTab('chat')
+    if (sessionId === currentSessionId) return
     setCurrentSessionId(sessionId)
     await loadSessionMessages(sessionId)
   }
 
-  // 5. 新建排查会话
+  // 5. 新建排查会话（并自动切回智能排障对话视图）
   const handleNewSession = async () => {
-    if (isThinking) return
+    if (isThinking) return null
+    setActiveTab('chat')
     try {
       const res = await fetch(`${API_BASE}/v1/sessions`, {
         method: 'POST',
@@ -101,10 +190,12 @@ function App() {
         setSessions((prev) => [newSess, ...prev])
         setCurrentSessionId(newSess.session_id)
         setMessages([]) // 清空当前视图准备录入新排查
+        return newSess.session_id
       }
     } catch (err) {
       console.error('创建会话失败:', err)
     }
+    return null
   }
 
   // 6. 删除会话
@@ -132,12 +223,10 @@ function App() {
     }
   }
 
-  // 7. 发送流式排查指令
-  const handleSubmit = async () => {
-    if (!prompt.trim() || isThinking || !currentSessionId) return
+  // 7. 核心流式请求发送器（供输入框提交与设备卡片一键排障共同复用）
+  const sendPrompt = async (userText: string, targetSessionId: string) => {
+    if (!userText.trim() || isThinking || !targetSessionId) return
 
-    const userText = prompt
-    setPrompt('')
     setIsThinking(true)
 
     // 乐观追加用户消息与助手空气泡
@@ -166,8 +255,8 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: userText,
-          session_id: currentSessionId, // 👈 绑定当前选中的持久化 Session ID！
-          provider: provider,
+          session_id: targetSessionId,
+          provider: provider
         })
       })
 
@@ -233,8 +322,27 @@ function App() {
       )
     } finally {
       setIsThinking(false)
-      // 流式结束：刷新一次会话列表（同步后端自动提炼的首轮会话标题与更新时间）
+      // 流式结束：同步刷新会话列表 + 设备健康与工单角标
       fetchSessions()
+      fetchDeviceHealth()
+    }
+  }
+
+  // 8. 输入框提交排查指令
+  const handleSubmit = async () => {
+    if (!prompt.trim() || isThinking || !currentSessionId) return
+    const userText = prompt
+    setPrompt('')
+    await sendPrompt(userText, currentSessionId)
+  }
+
+  // 9. 设备看板卡片「一键 AI 排障」联动
+  const handleInvestigateDevice = async (deviceId: string) => {
+    if (isThinking) return
+    setActiveTab('chat')
+    const newSessionId = await handleNewSession()
+    if (newSessionId) {
+      await sendPrompt(`请排查 ${deviceId} 当前的运行状态与异常情况`, newSessionId)
     }
   }
 
@@ -258,12 +366,18 @@ function App() {
     return <ReactMarkdown>{text}</ReactMarkdown>
   }
 
+  const activeSession = sessions.find((s) => s.session_id === currentSessionId)
+
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
-      {/* 1. 左侧可收缩抽屉：多会话工作站 */}
+    <div className="flex h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-sans">
+      {/* 1. 左侧可收缩工作台菜单 & 多会话工作站 */}
       <Sidebar
         sessions={sessions}
         currentSessionId={currentSessionId}
+        activeTab={activeTab}
+        abnormalDevices={healthData?.summary.abnormal_devices ?? 0}
+        openWorkOrders={healthData?.summary.open_work_orders ?? 0}
+        onSelectTab={setActiveTab}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}
@@ -272,46 +386,46 @@ function App() {
       />
 
       {/* 2. 右侧主排障控制台 */}
-      <main className="flex-1 flex flex-col h-full bg-slate-900 overflow-hidden">
-        {/* 顶部状态栏 */}
-        <header className="h-14 border-b border-slate-800 px-6 flex items-center justify-between bg-slate-900/60 backdrop-blur-sm select-none">
-          <div className="flex items-center gap-4">
-            <h1 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-              <span className="text-base">⚙️</span> 工业现场智能排障工作站 (FDE Console 2.0)
-            </h1>
-            <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+      <main className="flex-1 flex flex-col h-full min-w-0 bg-slate-50 dark:bg-slate-900 overflow-hidden">
+        {/* 顶部状态栏（精简聚焦：左侧页面标题，右侧双轨引擎切换 + 右上角主题切换） */}
+        <header className="h-14 shrink-0 border-b border-slate-300 dark:border-slate-800 px-5 flex items-center justify-between gap-4 bg-white/90 dark:bg-slate-900/60 backdrop-blur-sm select-none">
+          <div className="flex items-center gap-3 min-w-0">
+            {!isSidebarOpen && (
               <button
-                onClick={() => setActiveTab('chat')}
-                className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                  activeTab === 'chat'
-                    ? 'bg-slate-800 text-white'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 dark:bg-slate-950 dark:hover:bg-slate-800 dark:text-slate-300 dark:border-slate-800 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                title="展开侧边栏菜单"
               >
-                💬 智能排障
+                ☰ 菜单
               </button>
-              <button
-                onClick={() => setActiveTab('orders')}
-                className={`px-3 py-1 rounded-md font-medium transition-all cursor-pointer ${
-                  activeTab === 'orders'
-                    ? 'bg-slate-800 text-white'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                📋 工单台账
-              </button>
+            )}
+            <div className="flex items-center gap-2 min-w-0">
+              <h1 className="text-sm font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                {activeTab === 'devices' && '🖥️ 设备实时健康总览'}
+                {activeTab === 'orders' && '📋 工单台账管理'}
+                {activeTab === 'chat' && '💬 智能排障对话'}
+              </h1>
+              {activeTab === 'chat' && activeSession?.title && (
+                <span
+                  className="text-xs text-slate-500 dark:text-slate-400 truncate hidden sm:inline"
+                  title={activeSession.title}
+                >
+                  · {activeSession.title}
+                </span>
+              )}
             </div>
           </div>
 
-          <div className="flex items-center gap-4 text-xs font-mono text-slate-400">
-            <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex items-center bg-slate-100 dark:bg-slate-950 p-1 rounded-lg border border-slate-300 dark:border-slate-800">
               <button
                 onClick={() => !isThinking && setProvider('gemini')}
                 disabled={isThinking}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
                   provider === 'gemini'
                     ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                 }`}
               >
                 ☁️ 云端 Gemini
@@ -319,101 +433,153 @@ function App() {
               <button
                 onClick={() => !isThinking && setProvider('local')}
                 disabled={isThinking}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
                   provider === 'local'
                     ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                 }`}
               >
                 🛡️ 本地私有引擎
               </button>
             </div>
-            <span className="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              当前会话: <span className="text-blue-400 font-bold">{currentSessionId || '未连接'}</span>
-            </span>
+
+            <button
+              type="button"
+              onClick={handleToggleTheme}
+              aria-label={resolvedScheme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+              title={
+                storedScheme
+                  ? `当前固定为${resolvedScheme === 'dark' ? '深色' : '浅色'}模式，点击切换`
+                  : `跟随系统（当前${resolvedScheme === 'dark' ? '深色' : '浅色'}），点击切换`
+              }
+              className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 dark:bg-slate-950 dark:hover:bg-slate-800 dark:text-slate-200 dark:border-slate-800 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <span className="hidden dark:inline-flex items-center gap-1.5">
+                <span aria-hidden="true">☀️</span>
+                <span className="sr-only">切换到</span>浅色
+              </span>
+              <span className="inline-flex dark:hidden items-center gap-1.5">
+                <span aria-hidden="true">🌙</span>
+                <span className="sr-only">切换到</span>深色
+              </span>
+            </button>
           </div>
         </header>
 
-        {/* 消息历史滚动区 */}
-        {activeTab === 'orders' ? (
-          <WorkOrderPanel apiBase={API_BASE} />
+        {/* 主工作区：设备总览 / 工单台账 / 智能排障 */}
+        {activeTab === 'devices' ? (
+          <DevicePanel
+            healthData={healthData}
+            loading={healthLoading}
+            onRefresh={fetchDeviceHealth}
+            onInvestigate={handleInvestigateDevice}
+          />
+        ) : activeTab === 'orders' ? (
+          <WorkOrderPanel apiBase={API_BASE} onOrderResolved={fetchDeviceHealth} />
         ) : (
           <>
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-950/40">
-              {messages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-slate-600 font-mono text-xs space-y-2 select-none">
-                  <span className="text-4xl mb-2">💬</span>
-                  <p>当前会话暂无历史排查记录</p>
-                  <p className="text-slate-500">
-                    可尝试输入："请排查3号机当前的运行状态"，或从左侧抽屉切换历史会话
-                  </p>
-                </div>
-              ) : (
-                messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
-                  >
-                    {/* 角色标识 */}
-                    <span className="text-[11px] font-mono text-slate-500 mb-1 px-1">
-                      {msg.role === 'user' ? '👤 现场工程师' : '🤖 FDE 智能专家'}
-                    </span>
-
-                    {/* 消息气泡卡片 */}
-                    <div
-                      className={`max-w-[85%] rounded-xl p-4 text-sm ${
-                        msg.role === 'user'
-                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-950/30'
-                          : 'bg-slate-900 border border-slate-800 text-slate-200 shadow-xl'
-                      }`}
-                    >
-                      {/* 若有工具调度日志，置于顶部 */}
-                      {msg.toolLogs && msg.toolLogs.length > 0 && (
-                        <div className="mb-4 space-y-2">
-                          {msg.toolLogs.map((log, idx) => (
-                            <div
-                              key={idx}
-                              className="bg-slate-950/80 border-l-4 border-amber-500 p-2.5 rounded text-xs"
-                            >
-                              <div className="text-amber-400 font-bold flex items-center gap-1.5">
-                                <span className="animate-pulse">⚡</span> 底层调度: {log.tool_name}
-                              </div>
-                              <pre className="text-slate-400 text-[11px] font-mono mt-1 overflow-x-auto whitespace-pre-wrap">
-                                {JSON.stringify(log.arguments, null, 2)}
-                              </pre>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* 文本回复区域 */}
-                      {msg.content ? (
-                        <div className="prose prose-invert prose-blue max-w-none text-slate-200">
-                          {renderMessageContent(msg.content)}
-                        </div>
-                      ) : msg.role === 'assistant' ? (
-                        <div className="flex items-center gap-2 text-slate-500 font-mono text-xs animate-pulse">
-                          <span>🧠</span> 思考中 / 正在调度物理底层工具...
-                        </div>
-                      ) : null}
+            {/* 消息历史滚动区（与底部输入框对齐 max-w-4xl，提升宽屏阅读舒适度） */}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-100/80 dark:bg-slate-950/40 custom-scrollbar">
+              <div className="max-w-4xl mx-auto w-full h-full flex flex-col">
+                {messages.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center text-slate-600 dark:text-slate-400 text-xs space-y-4 select-none">
+                    <div className="text-center space-y-1.5">
+                      <div className="text-4xl mb-2">💬</div>
+                      <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        当前会话暂无历史排查记录
+                      </p>
+                      <p className="font-mono text-slate-500 dark:text-slate-400">
+                        可点击下方快捷指令一键开测，或直接在底部输入排查需求
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap justify-center gap-2 max-w-xl">
+                      {[
+                        '请排查 DEV-003 当前的运行状态并派单',
+                        '对比 DEV-001 和 DEV-003 近期温度趋势',
+                        '查询 DEV-003 冷却系统高温应急 SOP'
+                      ].map((quickText) => (
+                        <button
+                          key={quickText}
+                          type="button"
+                          disabled={isThinking || !currentSessionId}
+                          onClick={() => sendPrompt(quickText, currentSessionId)}
+                          className="px-3 py-1.5 rounded-full bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-300 hover:border-blue-300 dark:bg-slate-900 dark:hover:bg-slate-800 dark:text-slate-300 dark:hover:text-blue-300 dark:border-slate-700 text-xs transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          ✨ {quickText}
+                        </button>
+                      ))}
                     </div>
                   </div>
-                ))
-              )}
-            <div ref={chatBottomRef} />
-            </div>
-          </>
-        )}
+                ) : (
+                  <div className="space-y-6 pb-2">
+                    {messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+                      >
+                        {/* 角色标识 */}
+                        <span className="text-[11px] font-mono text-slate-600 dark:text-slate-400 mb-1 px-1">
+                          {msg.role === 'user' ? '👤 现场工程师' : '🤖 FDE 智能专家'}
+                        </span>
 
-        {/* 底部输入框 */}
-        {activeTab === 'orders' ? (<WorkOrderPanel apiBase={API_BASE} />) : (
-          <>
-            <div className="p-4 border-t border-slate-800 bg-slate-900/90">
+                        {/* 消息气泡卡片 */}
+                        <div
+                          className={`max-w-[85%] rounded-xl p-4 text-sm ${
+                            msg.role === 'user'
+                              ? 'bg-blue-600 text-white shadow-md dark:shadow-lg dark:shadow-blue-950/30'
+                              : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-800 dark:text-slate-200 shadow-md dark:shadow-xl'
+                          }`}
+                        >
+                          {/* 若有工具调度日志，置于顶部 */}
+                          {msg.toolLogs && msg.toolLogs.length > 0 && (
+                            <div className="mb-4 space-y-2">
+                              {msg.toolLogs.map((log, idx) => (
+                                <div
+                                  key={idx}
+                                  className="bg-slate-50 dark:bg-slate-950/80 border-l-4 border-amber-500 p-2.5 rounded text-xs border border-slate-200 dark:border-slate-800/50"
+                                >
+                                  <div className="text-amber-700 dark:text-amber-400 font-bold flex items-center gap-1.5">
+                                    <span className="animate-pulse">⚡</span> 底层调度: {log.tool_name}
+                                  </div>
+                                  <pre className="text-slate-600 dark:text-slate-400 text-[11px] font-mono mt-1 overflow-x-auto whitespace-pre-wrap">
+                                    {JSON.stringify(log.arguments, null, 2)}
+                                  </pre>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* 文本回复区域（用户气泡始终蓝底白字，不受 prose 浅色正文变量覆盖） */}
+                          {msg.content ? (
+                            msg.role === 'user' ? (
+                              <div className="prose prose-invert max-w-none text-white [&_p]:my-0">
+                                {renderMessageContent(msg.content)}
+                              </div>
+                            ) : (
+                              <div className="prose dark:prose-invert prose-blue max-w-none text-slate-800 dark:text-slate-200">
+                                {renderMessageContent(msg.content)}
+                              </div>
+                            )
+                          ) : msg.role === 'assistant' ? (
+                            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 font-mono text-xs animate-pulse">
+                              <span>🧠</span> 思考中 / 正在调度物理底层工具...
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                    <div ref={chatBottomRef} />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 底部输入框 */}
+            <div className="p-4 border-t border-slate-300 dark:border-slate-800 bg-white/95 dark:bg-slate-900/90 shrink-0">
               <div className="max-w-4xl mx-auto flex gap-3">
                 <input
                   type="text"
-                  className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all disabled:opacity-50 font-mono text-sm"
+                  className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg px-4 py-3 text-slate-900 dark:text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all disabled:opacity-50 font-mono text-sm"
                   placeholder="输入排查指令，例如：'请排查3号机状态并派单'，支持多轮连续追问..."
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
@@ -423,7 +589,7 @@ function App() {
                 <button
                   onClick={handleSubmit}
                   disabled={isThinking}
-                  className="bg-blue-600 hover:bg-blue-500 active:scale-95 disabled:bg-slate-800 disabled:text-slate-600 text-white px-7 py-3 rounded-lg font-medium transition-all shadow-lg shadow-blue-900/20 cursor-pointer text-sm"
+                  className="bg-blue-600 hover:bg-blue-500 active:scale-95 disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-800 dark:disabled:text-slate-600 text-white px-7 py-3 rounded-lg font-medium transition-all shadow-md dark:shadow-lg dark:shadow-blue-900/20 cursor-pointer text-sm whitespace-nowrap"
                 >
                   {isThinking ? '诊断中...' : '发送指令'}
                 </button>

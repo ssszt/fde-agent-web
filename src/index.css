@@ -2,7 +2,64 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --app-bg-light: #f1f5f9;
+  --app-bg-dark: #020617;
+  --app-fg-light: #0f172a;
+  --app-fg-dark: #e2e8f0;
+  --scrollbar-track-light: #e2e8f0;
+  --scrollbar-track-dark: #0f172a;
+  --scrollbar-thumb-light: #64748b;
+  --scrollbar-thumb-dark: #475569;
+
+  --app-bg: var(--app-bg-light);
+  --app-fg: var(--app-fg-light);
+  --scrollbar-track: var(--scrollbar-track-light);
+  --scrollbar-thumb: var(--scrollbar-thumb-light);
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) {
+    --app-bg: var(--app-bg-dark);
+    --app-fg: var(--app-fg-dark);
+    --scrollbar-track: var(--scrollbar-track-dark);
+    --scrollbar-thumb: var(--scrollbar-thumb-dark);
+  }
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]) {
+  color-scheme: dark;
+  --app-bg: var(--app-bg-dark);
+  --app-fg: var(--app-fg-dark);
+  --scrollbar-track: var(--scrollbar-track-dark);
+  --scrollbar-thumb: var(--scrollbar-thumb-dark);
+}
+
+:root:has(> head > meta[name="color-scheme"][content="light"]) {
+  color-scheme: light;
+  --app-bg: var(--app-bg-light);
+  --app-fg: var(--app-fg-light);
+  --scrollbar-track: var(--scrollbar-track-light);
+  --scrollbar-thumb: var(--scrollbar-thumb-light);
+}
+
+@supports (color: light-dark(white, black)) {
+  :root {
+    --app-bg: light-dark(var(--app-bg-light), var(--app-bg-dark));
+    --app-fg: light-dark(var(--app-fg-light), var(--app-fg-dark));
+    --scrollbar-track: light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
+    --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
+  }
+}
+
 body {
-  background-color: #0f172a; 
-  color: #e2e8f0;
+  background-color: var(--app-bg);
+  color: var(--app-fg);
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }

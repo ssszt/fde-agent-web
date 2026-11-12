@@ -1,4 +1,4 @@
-import React, { useDebugValue, useState } from 'react';
+import { useState } from 'react';
 
 interface TelemetryPoint {
     timestamp: string;
@@ -19,7 +19,7 @@ export default function TelemetryTable({jsonStr}: {jsonStr: string;})  {
         const rawHistory = data.history || [];
         if(rawHistory.length == 0) {
             return (
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-lg text-slate-400 text-sm">
+                <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-4 rounded-lg text-slate-600 dark:text-slate-400 text-sm">
                     暂无设备 {data.device_id} 的时序数据
                 </div>
             );
@@ -57,17 +57,17 @@ export default function TelemetryTable({jsonStr}: {jsonStr: string;})  {
         //85度故障阈值红线Y坐标
         const warningLineY = getY(85);
         return (
-            <div className="my-4 bg-slate-900/90 backdrop-blur rounded-xl border border-slate-700/80 shadow-2xl overflow-hidden font-sans">
+            <div className="my-4 bg-white dark:bg-slate-900/90 backdrop-blur rounded-xl border border-slate-300 dark:border-slate-700/80 shadow-lg dark:shadow-2xl overflow-hidden font-sans">
                 {/* 1. 顶部 Header & KPI 指标卡片 */}
-                <div className="p-4 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                <div className="p-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
                         <span className="text-lg">📊</span>
                         <div>
-                            <div className="text-xs text-slate-400 font-mono">DEVICE MONITOR</div>
-                            <div className="text-base font-bold text-slate-100 flex items-center gap-2">
+                            <div className="text-xs text-slate-600 dark:text-slate-400 font-mono">DEVICE MONITOR</div>
+                            <div className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                                 <span>{data.device_id}</span>
                                 <span className={`text-xs px-2 py-0.5 rounded font-mono font-bold ${
-                                isCritical ? 'bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse' : 'bg-emerald-500/20 text-emerald-400'
+                                isCritical ? 'bg-red-50 text-red-700 border border-red-300 dark:bg-red-500/20 dark:text-red-400 dark:border-red-500/30 animate-pulse' : 'bg-emerald-50 text-emerald-700 border border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-transparent'
                                 }`}>
                                 {latestPoint.status}
                                 </span>
@@ -75,26 +75,26 @@ export default function TelemetryTable({jsonStr}: {jsonStr: string;})  {
                         </div>
                     </div>
                     <div className="flex gap-4 text-xs font-mono">
-                        <div className="bg-slate-950/60 px-3 py-1.5 rounded border border-slate-800">
-                            <span className="text-slate-500 block">实时温度</span>
-                            <span className={`text-sm font-bold ${latestPoint.temperature > 85 ? 'text-red-400' : 'text-emerald-400'}`}>
+                        <div className="bg-white dark:bg-slate-950/60 px-3 py-1.5 rounded border border-slate-300 dark:border-slate-800">
+                            <span className="text-slate-600 dark:text-slate-400 block">实时温度</span>
+                            <span className={`text-sm font-bold ${latestPoint.temperature > 85 ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
                                 {latestPoint.temperature.toFixed(1)}°C
                             </span>
                         </div>
-                        <div className="bg-slate-950/60 px-3 py-1.5 rounded border border-slate-800">
-                            <span className="text-slate-500 block">区间峰值</span>
-                            <span className="text-sm font-bold text-amber-400">{maxTemp.toFixed(1)}°C</span>
+                        <div className="bg-white dark:bg-slate-950/60 px-3 py-1.5 rounded border border-slate-300 dark:border-slate-800">
+                            <span className="text-slate-600 dark:text-slate-400 block">区间峰值</span>
+                            <span className="text-sm font-bold text-amber-700 dark:text-amber-400">{maxTemp.toFixed(1)}°C</span>
                         </div>
                     </div>
                 </div>
                 {/* 2. 核心时序趋势图 (SVG 响应式绘制) */}
-                <div className="p-4 bg-slate-950/40">
-                    <div className="flex justify-between items-center text-xs text-slate-400 mb-1">
+                <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40">
+                    <div className="flex justify-between items-center text-xs text-slate-600 dark:text-slate-400 mb-1">
                         <span className="font-mono flex items-center gap-2">
-                        <span className="inline-block w-2 h-2 rounded-full bg-blue-500"></span>
+                        <span className="inline-block w-2 h-2 rounded-full bg-blue-600 dark:bg-blue-500"></span>
                         温度变化趋势 ({chronologicalHistory.length} 个采样点)
                         </span>
-                        <span className="text-red-400/80 flex items-center gap-1 font-mono">
+                        <span className="text-red-600 dark:text-red-400/80 flex items-center gap-1 font-mono">
                         <span className="w-3 border-b-2 border-dashed border-red-500"></span>
                         85°C 报警阈值
                         </span>
@@ -118,7 +118,7 @@ export default function TelemetryTable({jsonStr}: {jsonStr: string;})  {
                         {/* 折线图连线 */}
                         <polyline
                             fill="none"
-                            stroke="#38bdf8"
+                            className="stroke-sky-600 dark:stroke-sky-400"
                             strokeWidth="2.5"
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -135,7 +135,7 @@ export default function TelemetryTable({jsonStr}: {jsonStr: string;})  {
                                 cx={cx}
                                 cy={cy}
                                 r={isPointCritical ? 4.5 : 3.5}
-                                className={isPointCritical ? 'fill-red-500 stroke-red-200' : 'fill-blue-500 stroke-slate-900'}
+                                className={isPointCritical ? 'fill-red-500 stroke-red-200' : 'fill-blue-600 dark:fill-blue-500 stroke-white dark:stroke-slate-900'}
                                 strokeWidth="2"
                                 />
                                 {/* 温度数字标注 */}
@@ -145,7 +145,7 @@ export default function TelemetryTable({jsonStr}: {jsonStr: string;})  {
                                 textAnchor="middle"
                                 fontSize="9"
                                 fontFamily="monospace"
-                                className={isPointCritical ? 'fill-red-400 font-bold' : 'fill-slate-400'}
+                                className={isPointCritical ? 'fill-red-600 dark:fill-red-400 font-bold' : 'fill-slate-600 dark:fill-slate-400'}
                                 >
                                 {d.temperature}°
                                 </text>
@@ -157,7 +157,7 @@ export default function TelemetryTable({jsonStr}: {jsonStr: string;})  {
                                     textAnchor="middle"
                                     fontSize="8"
                                     fontFamily="monospace"
-                                    fill="#64748b"
+                                    className="fill-slate-600 dark:fill-slate-500"
                                 >
                                     {d.timestamp.split(' ')[1] || d.timestamp}
                                 </text>
@@ -169,36 +169,36 @@ export default function TelemetryTable({jsonStr}: {jsonStr: string;})  {
                     </div>
                 </div>
                  {/* 3. 底部：明细数据可折叠表格 */}
-                <div className="border-t border-slate-800 bg-slate-900/60">
+                <div className="border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60">
                     <button
                         onClick={() => setShowTable(!showTable)}
-                        className="w-full px-4 py-2 text-xs font-mono text-slate-400 hover:text-slate-200 flex justify-between items-center transition-colors"
+                        className="w-full px-4 py-2 text-xs font-mono text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 flex justify-between items-center transition-colors cursor-pointer"
                     >
                         <span>{showTable ? '▲ 收起详细追溯日志' : '▼ 展开详细追溯日志 (' + rawHistory.length + '条记录)'}</span>
-                        <span className="text-[10px] text-slate-500">SQLite 数据源</span>
+                        <span className="text-[10px] text-slate-600 dark:text-slate-400">SQLite 数据源</span>
                     </button>
                     {showTable && (
-                        <div className="p-3 border-t border-slate-800/80">
-                        <table className="w-full text-left text-xs font-mono text-slate-300">
-                            <thead className="text-[10px] uppercase text-slate-500 border-b border-slate-800">
+                        <div className="p-3 border-t border-slate-200 dark:border-slate-800/80">
+                        <table className="w-full text-left text-xs font-mono text-slate-700 dark:text-slate-300">
+                            <thead className="text-[10px] uppercase text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
                             <tr>
                                 <th className="pb-2">时间戳</th>
                                 <th className="pb-2">温度</th>
                                 <th className="pb-2 text-right">状态</th>
                             </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-800/50">
+                            <tbody className="divide-y divide-slate-200 dark:divide-slate-800/50">
                             {rawHistory.map((row, index) => {
                                 const rowCritical = row.status === 'CRITICAL_FAULT' || row.temperature > 85;
                                 return (
-                                <tr key={index} className={rowCritical ? 'bg-red-500/10' : ''}>
-                                    <td className="py-1.5 text-slate-400">{row.timestamp}</td>
-                                    <td className={`py-1.5 font-bold ${rowCritical ? 'text-red-400' : 'text-emerald-400'}`}>
+                                <tr key={index} className={rowCritical ? 'bg-red-50 dark:bg-red-500/10' : ''}>
+                                    <td className="py-1.5 text-slate-600 dark:text-slate-400">{row.timestamp}</td>
+                                    <td className={`py-1.5 font-bold ${rowCritical ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
                                     {row.temperature}°C
                                     </td>
                                     <td className="py-1.5 text-right">
                                     <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                                        rowCritical ? 'bg-red-500/20 text-red-400' : 'text-slate-400'
+                                        rowCritical ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400' : 'text-slate-600 dark:text-slate-400'
                                     }`}>
                                         {row.status}
                                     </span>
@@ -215,7 +215,7 @@ export default function TelemetryTable({jsonStr}: {jsonStr: string;})  {
         );
     } catch (error) {
         return (
-        <div className="text-red-400 text-xs bg-red-950/30 border border-red-900/50 p-3 rounded font-mono my-2">
+        <div className="text-red-700 dark:text-red-400 text-xs bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-900/50 p-3 rounded font-mono my-2">
             ⚠️ 遥测时序数据解析异常: {String(error)}
         </div>
         );
