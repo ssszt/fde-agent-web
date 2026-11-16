@@ -418,28 +418,49 @@ function App() {
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
+            {/* 工业级双轨热备监控徽章 (架构亮点展示) */}
+            <div 
+              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-[11px] font-mono select-none"
+              title="系统已就绪双轨架构：云端高算力驱动与本地离线沙箱热插拔"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                  provider === 'gemini' ? 'bg-blue-400' : 'bg-emerald-400'
+                }`}></span>
+                <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                  provider === 'gemini' ? 'bg-blue-500' : 'bg-emerald-500'
+                }`}></span>
+              </span>
+              <span className="text-slate-500 dark:text-slate-400">
+                {provider === 'gemini' ? '双轨热备: 主Gemini (503自动转移)' : '隔离模式: 本地私有 (数据未出厂区)'}
+              </span>
+            </div>
+
+            {/* 双轨引擎热插拔切换器 */}
             <div className="flex items-center bg-slate-100 dark:bg-slate-950 p-1 rounded-lg border border-slate-300 dark:border-slate-800">
               <button
                 onClick={() => !isThinking && setProvider('gemini')}
                 disabled={isThinking}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                   provider === 'gemini'
                     ? 'bg-blue-600 text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                 }`}
               >
-                ☁️ 云端 Gemini
+                <span>☁️</span>
+                <span>云端 Gemini</span>
               </button>
               <button
                 onClick={() => !isThinking && setProvider('local')}
                 disabled={isThinking}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                   provider === 'local'
                     ? 'bg-emerald-600 text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                 }`}
               >
-                🛡️ 本地私有引擎
+                <span>🛡️</span>
+                <span>本地私有引擎</span>
               </button>
             </div>
 
