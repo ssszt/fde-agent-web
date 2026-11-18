@@ -5,11 +5,19 @@ import ReactMarkdown from 'react-markdown'
 import WorkOrderPanel from './components/WorkOrderPanel'
 import DevicePanel, { type DeviceHealthResponse } from './components/DevicePanel'
 
+interface Citation {
+  source: string
+  section: string
+  device_id: string
+  similarity: number
+  content: string
+}
 interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
-  toolLogs: any[]
+  toolLogs: any[],
+  citations?: Citation[]
 }
 
 type ColorScheme = 'light' | 'dark'
@@ -304,6 +312,14 @@ function App() {
                       : msg
                   )
                 )
+              } else if (eventType === 'citation' && parsedData.citations) {
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantMsgId
+                      ? { ...msg, citations: [...(msg.citations || []), ...parsedData.citations] }
+                      : msg
+                  )
+                )
               }
             } catch (e) {
               console.warn('JSON解析跳过非标准数据:', dataStr)
@@ -569,7 +585,37 @@ function App() {
                               ))}
                             </div>
                           )}
-
+                          {/* 👈 新增：RAG 企业知识库溯源卡片 */}
+                          {msg.citations && msg.citations.length > 0 && (
+                            <div className="mb-4 rounded-lg border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/70 dark:bg-indigo-950/40 p-3 text-xs">
+                              <div className="flex items-center justify-between font-semibold text-indigo-700 dark:text-indigo-300 mb-2">
+                                <span className="flex items-center gap-1.5">
+                                  <span>📚</span> 企业知识库依据 (RAG 检索召回: {msg.citations.length} 处)
+                                </span>
+                                <span className="font-mono text-[11px] px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200">
+                                  最高置信度: {Math.max(...msg.citations.map((c) => c.similarity))}
+                                </span>
+                              </div>
+                              <div className="space-y-1.5">
+                                {msg.citations.map((c, idx) => (
+                                  <details
+                                    key={idx}
+                                    className="group rounded border border-indigo-100 dark:border-indigo-900/40 bg-white/90 dark:bg-slate-900/90 p-2 transition-all"
+                                  >
+                                    <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-300 flex items-center justify-between select-none">
+                                      <span className="truncate max-w-[80%]">📄 {c.source} · {c.section}</span>
+                                      <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                                        相似度 {(c.similarity * 100).toFixed(1)}%
+                                      </span>
+                                    </summary>
+                                    <div className="mt-2 text-[11px] text-slate-600 dark:text-slate-400 whitespace-pre-wrap font-mono border-t border-slate-100 dark:border-slate-800 pt-1.5 leading-relaxed">
+                                      {c.content}
+                                    </div>
+                                  </details>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                           {/* 文本回复区域（用户气泡始终蓝底白字，不受 prose 浅色正文变量覆盖） */}
                           {msg.content ? (
                             msg.role === 'user' ? (
